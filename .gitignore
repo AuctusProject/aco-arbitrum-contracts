@@ -1,0 +1,11 @@
+node_modules
+/artifacts
+/.vs
+/cache
+/contracts/core/artifacts
+/contracts/interfaces/artifacts
+/contracts/libs/artifacts
+/contracts/only-for-tests/artifacts
+/contracts/periphery/artifacts
+/contracts/periphery/pool/artifacts
+/contracts/util/artifacts
