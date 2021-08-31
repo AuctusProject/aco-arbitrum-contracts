@@ -88,7 +88,7 @@ library ACOPoolLib {
     ) {
 		uint256 underlyingBalance = _getPoolBalanceOf(underlying);
 		uint256 strikeAssetBalance;
-		if (isCall) {
+		if (isCall || lendingToken == address(0)) {
 		    strikeAssetBalance = _getPoolBalanceOf(strikeAsset);
 		} else {
 		    strikeAssetBalance = _getPoolBalanceOf(lendingToken);
@@ -122,29 +122,6 @@ library ACOPoolLib {
 			underlyingWithdrawn = underlyingBalance.mul(shares).div(totalSupply);
 			isPossible = (collateralAmount <= strikeAssetBalance.add(collateralLockedRedeemable));
 		}
-    }
-    
-    function getAmountToLockedWithdraw(
-        uint256 shares, 
-        uint256 totalSupply, 
-        address lendingToken,
-        address underlying, 
-        address strikeAsset, 
-        bool isCall
-    ) public view returns(
-        uint256 underlyingWithdrawn, 
-        uint256 strikeAssetWithdrawn
-    ) {
-		uint256 underlyingBalance = _getPoolBalanceOf(underlying);
-		uint256 strikeAssetBalance;
-		if (isCall) {
-		    strikeAssetBalance = _getPoolBalanceOf(strikeAsset);
-		} else {
-		    strikeAssetBalance = _getPoolBalanceOf(lendingToken);
-		}
-		
-		underlyingWithdrawn = underlyingBalance.mul(shares).div(totalSupply);
-		strikeAssetWithdrawn = strikeAssetBalance.mul(shares).div(totalSupply);
     }
     
     function getAmountToNoLockedWithdraw(
@@ -258,7 +235,11 @@ library ACOPoolLib {
 				collateralBalance = collateralBalance.add(strikeAssetBalance.mul(underlyingPrecision).div(priceAdjusted));
 			}
 		} else {
-		    strikeAssetBalance = _getPoolBalanceOf(lendingToken);
+            if (lendingToken != address(0)) {
+		        strikeAssetBalance = _getPoolBalanceOf(lendingToken);
+            } else {
+                strikeAssetBalance = _getPoolBalanceOf(strikeAsset);
+            }
 			collateralBalance = strikeAssetBalance;
 			if (isDeposit && underlyingBalance > 0) {
 				uint256 priceAdjusted = _getUnderlyingPriceAdjusted(underlyingPrice, underlyingPriceAdjustPercentage, true); 
@@ -380,7 +361,11 @@ library ACOPoolLib {
             collateralAvailable = _getPoolBalanceOf(acoData.underlying);
             collateralAmount = acoData.tokenAmount; 
         } else {
-            collateralAvailable = _getPoolBalanceOf(lendingToken);
+            if (lendingToken != address(0)) {
+                collateralAvailable = _getPoolBalanceOf(lendingToken);
+            } else {
+                collateralAvailable = _getPoolBalanceOf(acoData.strikeAsset);
+            }
             collateralAmount = _getCollateralAmount(acoData.tokenAmount, acoData.strikePrice, acoData.isCall, underlyingPrecision);
             require(collateralAmount > 0, "ACOPoolLib: The token amount is too small");
         }

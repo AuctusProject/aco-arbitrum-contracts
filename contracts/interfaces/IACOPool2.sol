@@ -96,6 +96,7 @@ interface IACOPool2 is IERC20 {
 	function setAcoPermissionConfigV2(PoolAcoPermissionConfigV2 calldata newConfig) external;
 	function setPoolAdmin(uint256 newAdmin) external;
 	function setProtocolConfig(PoolProtocolConfig calldata newConfig) external;
+	function startLendingPool(address newLendingPool) external;
 	function setFeeData(address newFeeDestination, uint256 newFee) external;
 	function setAssetConverter(address newAssetConverter) external;
     function setTolerancePriceBelow(uint256 newTolerancePriceBelow) external;

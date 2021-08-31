@@ -91,6 +91,8 @@ import '../../interfaces/ILendingPool.sol';
  *------------------------------------------------------------------------------------------*
  * E94  | _setProtocolConfig                  | Invalid maximum number of open ACOs allowed *
  *------------------------------------------------------------------------------------------*
+ * E95  | _startLendingPool                   | Lending pool already started                *
+ *------------------------------------------------------------------------------------------*
  * E97  | _privateValidation                  | The pool is public or it is a pool admin    *
  *------------------------------------------------------------------------------------------*
  * E98  | _onlyPoolAdmin                      | Only the pool admin can call the method     *
@@ -102,6 +104,8 @@ contract ACOPool2 is Ownable, ERC20 {
     using SafeMath for uint256;
     
     uint256 internal constant PERCENTAGE_PRECISION = 100000;
+
+    event StartLendingPool(address indexed newLendingPool);
 
     event SetValidAcoCreator(address indexed creator, bool indexed previousPermission, bool indexed newPermission);
     
@@ -146,7 +150,6 @@ contract ACOPool2 is Ownable, ERC20 {
     );
 
     IACOFactory public acoFactory;
-	ILendingPool public lendingPool;
     address public underlying;
     address public strikeAsset;
     bool public isCall;
@@ -154,6 +157,7 @@ contract ACOPool2 is Ownable, ERC20 {
     bool public isPrivate;
     uint256 public poolId;
 
+	ILendingPool public lendingPool;
     address public poolAdmin;
 	address public strategy;
     uint256 public baseVolatility;
@@ -178,7 +182,6 @@ contract ACOPool2 is Ownable, ERC20 {
         super.init();
 
         acoFactory = IACOFactory(initData.acoFactory);
-        lendingPool = ILendingPool(initData.lendingPool);
         underlying = initData.underlying;
         strikeAsset = initData.strikeAsset;
         isCall = initData.isCall;
@@ -190,11 +193,8 @@ contract ACOPool2 is Ownable, ERC20 {
 		_setAcoPermissionConfig(initData.acoPermissionConfigV2);
         _setBaseVolatility(initData.baseVolatility);
         _setStrategy(initData.strategy);
-		
-		if (!initData.isCall) {
-		    lendingToken = ILendingPool(initData.lendingPool).getReserveData(initData.strikeAsset).aTokenAddress;
-            _setAuthorizedSpender(initData.strikeAsset, initData.lendingPool);
-        }
+        _startLendingPool(initData.lendingPool);
+
 		underlyingPrecision = 10 ** uint256(ACOAssetHelper._getAssetDecimals(initData.underlying));
     }
     
@@ -351,9 +351,14 @@ contract ACOPool2 is Ownable, ERC20 {
         _setProtocolConfig(newConfig);
     }
 
+    function startLendingPool(address newLendingPool) external {
+        _onlyProtocolOwner();
+		_startLendingPool(newLendingPool);
+	}
+
     function withdrawStuckToken(address token, address destination) external {
         _onlyProtocolOwner();
-        require(token != underlying && token != strikeAsset && !acoData[token].open && (isCall || token != lendingToken), "E80");
+        require(token != underlying && token != strikeAsset && !acoData[token].open && (!_hasLendingPool() || token != lendingToken), "E80");
         uint256 _balance = ACOAssetHelper._getAssetBalanceOf(token, address(this));
         if (_balance > 0) {
             ACOAssetHelper._transferAsset(token, destination, _balance);
@@ -424,7 +429,7 @@ contract ACOPool2 is Ownable, ERC20 {
 
             if (IACOToken(acoToken).currentCollateralizedTokens(address(this)) > 0) {	
 			    data.collateralRedeemed = IACOToken(acoToken).redeem();
-			    if (!isCall) {
+			    if (_hasLendingPool()) {
 			        _depositOnLendingPool(data.collateralRedeemed);
 			    }
             }
@@ -455,15 +460,15 @@ contract ACOPool2 is Ownable, ERC20 {
 			etherAmount = balanceOut;
         }
         uint256 collateralRestored = IACOAssetConverterHelper(protocolConfig.assetConverter).swapExactAmountOut{value: etherAmount}(assetOut, assetIn, balanceOut);
-        if (!isCall) {
+        if (_hasLendingPool()) {
             _depositOnLendingPool(collateralRestored);
         }
 
         emit RestoreCollateral(balanceOut, collateralRestored);
     }
 
-	function lendCollateral() external {
-		require(!isCall, "E70");
+	function lendCollateral() public {
+		require(_hasLendingPool(), "E70");
 	    uint256 strikeAssetBalance = _getPoolBalanceOf(strikeAsset);
 	    if (strikeAssetBalance > 0) {
 	        _depositOnLendingPool(strikeAssetBalance);
@@ -525,7 +530,7 @@ contract ACOPool2 is Ownable, ERC20 {
         _privateValidation();
         require(collateralAmount > 0, "E10");
         require(to != address(0) && to != address(this), "E11");
-        require(!isLendingToken || !isCall, "E12");
+        require(!isLendingToken || _hasLendingPool(), "E12");
 		
 		(,,uint256 collateralBalance,) = _getCollateralNormalized(true);
 
@@ -545,7 +550,7 @@ contract ACOPool2 is Ownable, ERC20 {
             ACOAssetHelper._receiveAsset(lendingToken, collateralAmount);
         } else {
             ACOAssetHelper._receiveAsset(_collateral, collateralAmount);
-            if (!isCall) {
+            if (_hasLendingPool()) {
                 _depositOnLendingPool(collateralAmount);
             }
         }
@@ -562,14 +567,14 @@ contract ACOPool2 is Ownable, ERC20 {
 		uint256[] memory acosAmount
 	) {
         require(shares > 0, "E20");
-        require(!withdrawLendingToken || !isCall, "E21");
+        require(!withdrawLendingToken || _hasLendingPool(), "E21");
         
 		redeemACOTokens();
 		
         uint256 _totalSupply = totalSupply();
         _callBurn(account, shares);
         
-		(underlyingWithdrawn, strikeAssetWithdrawn) = ACOPoolLib.getAmountToLockedWithdraw(shares, _totalSupply, lendingToken, underlying, strikeAsset, isCall);
+		(underlyingWithdrawn, strikeAssetWithdrawn) = ACOPoolLib.getBaseAssetsWithdrawWithLocked(shares, underlying, strikeAsset, isCall, _totalSupply, lendingToken);
 		
 		(acos, acosAmount) = _transferOpenPositions(shares, _totalSupply);
 
@@ -588,15 +593,14 @@ contract ACOPool2 is Ownable, ERC20 {
 		uint256 strikeAssetWithdrawn
 	) {
         require(shares > 0, "E30");
-        bool _isCall = isCall;
-        require(!withdrawLendingToken || !_isCall, "E31");
+        require(!withdrawLendingToken || _hasLendingPool(), "E31");
         
 		redeemACOTokens();
 		
         uint256 _totalSupply = totalSupply();
         _callBurn(account, shares);
         
-        (underlyingWithdrawn, strikeAssetWithdrawn) = _getAmountToNoLockedWithdraw(shares, _totalSupply, minCollateral, _isCall);
+        (underlyingWithdrawn, strikeAssetWithdrawn) = _getAmountToNoLockedWithdraw(shares, _totalSupply, minCollateral, isCall);
         
         _transferWithdrawnAssets(underlyingWithdrawn, strikeAssetWithdrawn, withdrawLendingToken);
 		
@@ -611,10 +615,10 @@ contract ACOPool2 is Ownable, ERC20 {
         if (strikeAssetWithdrawn > 0) {
             if (withdrawLendingToken) {
     		    ACOAssetHelper._transferAsset(lendingToken, msg.sender, strikeAssetWithdrawn);
-    		} else if (isCall) {
-    		    ACOAssetHelper._transferAsset(strikeAsset, msg.sender, strikeAssetWithdrawn);
-    		} else {
+    		} else if (_hasLendingPool()) {
     		    _withdrawOnLendingPool(strikeAssetWithdrawn, msg.sender);
+    		} else {
+    		    ACOAssetHelper._transferAsset(strikeAsset, msg.sender, strikeAssetWithdrawn);
     		}
         }
         if (underlyingWithdrawn > 0) {
@@ -732,7 +736,7 @@ contract ACOPool2 is Ownable, ERC20 {
         
         uint256 remaining = swapPrice.sub(protocolFee);
         
-        if (!isCall) {
+        if (_hasLendingPool()) {
             _withdrawOnLendingPool(collateralAmount.sub(remaining), address(this));
         }
         
@@ -783,6 +787,10 @@ contract ACOPool2 is Ownable, ERC20 {
             }
 		}
 	}
+
+    function _hasLendingPool() internal view returns(bool) {
+        return !isCall && address(lendingPool) != address(0);
+    }
 
     function _depositOnLendingPool(uint256 amount) internal {
         lendingPool.deposit(strikeAsset, amount, address(this), protocolConfig.lendingPoolReferral);
@@ -864,6 +872,22 @@ contract ACOPool2 is Ownable, ERC20 {
         emit SetProtocolConfig(protocolConfig, newConfig);
         
         protocolConfig = newConfig;
+    }
+
+    function _startLendingPool(address newLendingPool) internal {
+        require(address(lendingPool) == address(0), "E95");
+        
+        if (newLendingPool != address(0) && !isCall) {
+
+            lendingToken = ILendingPool(newLendingPool).getReserveData(strikeAsset).aTokenAddress;
+            _setAuthorizedSpender(strikeAsset, newLendingPool);
+                
+            lendingPool = ILendingPool(newLendingPool);
+
+            emit StartLendingPool(newLendingPool);
+
+            lendCollateral();
+        }
     }
     
     function _privateValidation() internal view {

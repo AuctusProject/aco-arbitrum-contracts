@@ -320,6 +320,15 @@ contract ACOPoolFactory2 {
         }
     }
 
+    function startLendingPoolOnAcoPool(
+        address newLendingPool,
+        address[] calldata acoPools
+    ) onlyPoolAdmin external virtual {
+        for (uint256 i = 0; i < acoPools.length; ++i) {
+            IACOPool2(acoPools[i]).startLendingPool(newLendingPool);
+        }
+    }
+
     function _setFactoryAdmin(address newFactoryAdmin) internal virtual {
         require(newFactoryAdmin != address(0), "ACOPoolFactory::_setFactoryAdmin: Invalid factory admin");
         emit SetFactoryAdmin(factoryAdmin, newFactoryAdmin);
