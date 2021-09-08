@@ -73,7 +73,7 @@ contract ACOWriterV2 {
         }
         
         if (address(this).balance > 0) {
-            payable(msg.sender).transfer(address(this).balance);
+            ACOAssetHelper._transferAsset(address(0), msg.sender, address(this).balance);
         }
     }
 }

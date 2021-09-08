@@ -79,7 +79,7 @@ contract ACOBuyerV2 {
             }
         }
         if (remainingEth > 0) {
-            payable(msg.sender).transfer(remainingEth);
+            ACOAssetHelper._transferAsset(address(0), msg.sender, remainingEth);
         }
     }
 }

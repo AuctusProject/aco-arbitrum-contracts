@@ -309,9 +309,9 @@ contract ACOToken is ERC20 {
         
         address _collateral = collateral();
         if (_isEther(_collateral)) {
-            payable(msg.sender).transfer(collateralAmount);
+            _transferEth(msg.sender, collateralAmount);
             if (fee > 0) {
-                feeDestination.transfer(fee);   
+                _transferEth(feeDestination, fee);
             }
         } else {
             _transferERC20(_collateral, msg.sender, collateralAmount);
@@ -412,7 +412,7 @@ contract ACOToken is ERC20 {
             data.amount = data.amount.sub(valueToTransfer); 
             
             if (_isEther(exerciseAsset)) {
-                payable(account).transfer(amount);
+                _transferEth(account, amount);
             } else {
                 _transferERC20(exerciseAsset, account, amount);
             }
@@ -540,7 +540,12 @@ contract ACOToken is ERC20 {
         }
     }
     
-     function _transferERC20(address token, address recipient, uint256 amount) internal {
+    function _transferEth(address to, uint256 amount) internal {
+        (bool success,) = to.call{value:amount}(new bytes(0));
+        require(success, "ACOToken::_transferEth:error on send eth");
+    }
+
+    function _transferERC20(address token, address recipient, uint256 amount) internal {
         (bool success, bytes memory returndata) = token.call(abi.encodeWithSelector(_transferSelector, recipient, amount));
         require(success && (returndata.length == 0 || abi.decode(returndata, (bool))), "ACOToken::_transferERC20");
     }
